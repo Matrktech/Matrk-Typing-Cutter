@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Typing Cutter Game</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, query, collection, getDocs, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase functions globally for use in the main script block
+        window.firebase = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, doc, setDoc, query, collection, getDocs, limit, orderBy, setLogLevel
+        };
+    </script>
+    
+    <!-- Use Inter font family -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+        }
+        /* Custom CSS for the falling items */
+        .fruit-item {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: pointer;
+            z-index: 10;
+            transition: all 0.2s ease-out;
+            will-change: transform, opacity;
+            padding: 8px 12px; 
+            border-radius: 9999px; 
+            font-size: 1.5rem; 
+            font-weight: 700; 
+            color: #e5e7eb; 
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); 
+            white-space: nowrap;
+            border: 2px solid #374151; 
+        }
+
+        .fruit-item span {
+             text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        .fruit-focused {
+            border-color: #34d399; 
+            box-shadow: 0 0 15px rgba(52, 211, 153, 0.8), 
+                        0 4px 10px rgba(0, 0, 0, 0.5); 
+            transform: scale(1.05); 
+        }
+
+        .typed-correct {
+            color: #34d399; 
+            font-weight: 900;
+            text-shadow: 0 0 5px #10b981; 
+        }
+        .typed-remaining {
+            color: #fca5a5; 
+            font-weight: 800; 
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        .fruit-container {
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            border-radius: 1rem;
+            background: linear-gradient(180deg, rgba(23, 31, 45, 0.95), rgba(13, 17, 23, 0.95));
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Main App Container -->
+    <div class="w-full max-w-2xl bg-gray-800 rounded-2xl shadow-2xl p-6 flex flex-col space-y-4">
+
+        <!-- Header (Only visible on Game Screen) -->
+        <header id="game-header" class="hidden justify-between items-center text-white pb-3 border-b border-gray-700">
+            <h1 class="text-3xl font-bold text-emerald-400">Typing Cutter</h1>
+            <div class="flex space-x-6 text-lg">
+                <p id="score-display">Score: 0</p>
+                <p id="lives-display">Lives: <span class="text-red-500">3</span></p>
+                <p id="user-display" class="text-sm text-gray-400 self-end">User: Loading...</p>
+            </div>
+        </header>
+
+
+        <!-- 1. MODE SELECTION SCREEN -->
+        <div id="selection-screen" class="flex flex-col items-center justify-center h-[50vh] space-y-8">
+            <h2 class="text-4xl font-extrabold text-emerald-400">Choose Your Challenge</h2>
+            <div class="w-full max-w-sm">
+                <label for="initial-mode-selector" class="block text-xl font-medium text-gray-300 mb-2">Select Word List:</label>
+                <select
+                    id="initial-mode-selector"
+                    class="w-full p-4 text-xl rounded-xl bg-gray-700 text-white border-2 border-gray-500 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition-all shadow-lg"
+                >
+                    <option value="FRUITS">🍉 Fruit Names (Easy)</option>
+                    <option value="CARS">🚗 Car Names (Medium)</option>
+                    <option value="PETS">🐾 Pet Names (Medium)</option>
+                    <option value="PEOPLE">🧑 People Names (Medium)</option>
+                    <option value="RANDOM">✨ Random Words (Hard - Long words)</option>
+                </select>
+            </div>
+            
+            <button id="begin-button" class="px-8 py-4 text-2xl font-bold rounded-xl bg-emerald-500 text-gray-900 hover:bg-emerald-400 transition-colors shadow-xl transform hover:scale-105">
+                Begin Typing
+            </button>
+        </div>
+
+
+        <!-- 2. GAME SCREEN (Initially Hidden) -->
+        <div id="game-container" class="hidden w-full flex flex-col space-y-4">
+            <!-- Game Area (The Falling Zone) -->
+            <div id="game-area" class="fruit-container h-[50vh] min-h-[300px]">
+                <!-- Falling fruits will be injected here -->
+            </div>
+
+            <!-- Input and Messages -->
+            <div class="pt-4 space-y-3">
+                <input
+                    type="text"
+                    id="typing-input"
+                    placeholder="Type the word here to cut the item..."
+                    autofocus
+                    disabled
+                    class="w-full p-3 text-lg rounded-xl bg-gray-700 text-white border-2 border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition-all shadow-lg"
+                >
+                <div id="message-box" class="text-center h-6 text-red-400 font-semibold"></div>
+            </div>
+
+            <!-- Leaderboard Section -->
+            <div class="pt-6 border-t border-gray-700">
+                <h2 class="text-2xl font-bold text-yellow-400 mb-3 text-center">Top 5 Leaderboard</h2>
+                <div id="leaderboard-list" class="space-y-2">
+                    <p class="text-gray-400 text-center">Loading scores...</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="game-over-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl text-white text-center w-full max-w-sm border-2 border-red-500">
+            <h2 class="text-4xl font-extrabold text-red-400 mb-4">GAME OVER!</h2>
+            <p class="text-xl mb-6">Final Score: <span id="final-score" class="font-bold text-emerald-400">0</span></p>
+            <div class="flex flex-col space-y-3">
+                <button id="restart-button" class="px-6 py-3 text-lg font-bold rounded-lg bg-emerald-500 text-gray-900 hover:bg-emerald-400 transition-colors">
+                    Play Again (Same Mode)
+                </button>
+                <button id="choose-mode-button" class="px-6 py-3 text-lg font-bold rounded-lg bg-gray-600 text-white hover:bg-gray-500 transition-colors">
+                    Choose New Mode
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- Firebase Globals (MUST be used) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db, auth, userId;
+        const LEADERBOARD_COLLECTION = `artifacts/${appId}/public/data/leaderboard`;
+        const userDisplay = document.getElementById('user-display');
+        
+        // --- Game Setup and Constants ---
+        const selectionScreen = document.getElementById('selection-screen');
+        const gameContainer = document.getElementById('game-container');
+        const gameHeader = document.getElementById('game-header');
+        const gameArea = document.getElementById('game-area');
+        const typingInput = document.getElementById('typing-input');
+        const scoreDisplay = document.getElementById('score-display');
+        const livesDisplay = document.getElementById('lives-display').querySelector('span');
+        const beginButton = document.getElementById('begin-button'); // New button
+        const messageBox = document.getElementById('message-box');
+        const gameOverModal = document.getElementById('game-over-modal');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const restartButton = document.getElementById('restart-button');
+        const chooseModeButton = document.getElementById('choose-mode-button'); // New button
+        const modeSelector = document.getElementById('initial-mode-selector');
+        const leaderboardList = document.getElementById('leaderboard-list');
+
+        const BOMB_CHANCE = 0.08; // 8% chance to spawn a bomb
+        const BOMB_WORD_CONFIG = {
+            word: "BOMB",
+            emoji: "💣",
+            color: "bg-red-900",
+            isBomb: true,
+        };
+
+        const WORD_CATEGORIES = {
+            FRUITS: [
+                { word: "APPLE", emoji: "🍎", color: "bg-red-500" },
+                { word: "BANANA", emoji: "🍌", color: "bg-yellow-500" },
+                { word: "CHERRY", emoji: "🍒", color: "bg-red-600" },
+                { word: "GRAPE", emoji: "🍇", color: "bg-purple-500" },
+                { word: "MANGO", emoji: "🥭", color: "bg-orange-500" },
+                { word: "PEACH", emoji: "🍑", color: "bg-pink-500" },
+                { word: "LEMON", emoji: "🍋", color: "bg-yellow-400" },
+                { word: "LIME", emoji: "🍈", color: "bg-green-500" },
+                { word: "KIWI", emoji: "🥝", color: "bg-green-700" },
+            ],
+            CARS: [
+                { word: "HONDA", emoji: "🚗", color: "bg-blue-600" },
+                { word: "TESLA", emoji: "🚘", color: "bg-red-500" },
+                { word: "FORD", emoji: "🚚", color: "bg-gray-500" },
+                { word: "AUDI", emoji: "🏎️", color: "bg-black" },
+                { word: "JEEP", emoji: "🚙", color: "bg-green-700" },
+                { word: "SUBARU", emoji: "🚖", color: "bg-cyan-500" },
+            ],
+            PETS: [
+                { word: "DOG", emoji: "🐕", color: "bg-yellow-400" },
+                { word: "CAT", emoji: "🐈", color: "bg-pink-400" },
+                { word: "BIRD", emoji: "🐦", color: "bg-sky-400" },
+                { word: "FISH", emoji: "🐠", color: "bg-blue-400" },
+                { word: "RABBIT", emoji: "🐇", color: "bg-zinc-200" },
+                { word: "SNAKE", emoji: "🐍", color: "bg-green-500" },
+            ],
+            PEOPLE: [
+                { word: "JOHN", emoji: "🧑", color: "bg-orange-400" },
+                { word: "JANE", emoji: "👩", color: "bg-fuchsia-400" },
+                { word: "CHLOE", emoji: "👧", color: "bg-yellow-200" },
+                { word: "MAX", emoji: "👦", color: "bg-lime-500" },
+                { word: "ALEX", emoji: "👨", color: "bg-sky-500" },
+                { word: "SARAH", emoji: "👱‍♀️", color: "bg-amber-200" },
+            ],
+            RANDOM: [
+                { word: "KEY", emoji: "🔑", color: "bg-yellow-700" },
+                { word: "BOX", emoji: "📦", color: "bg-orange-700" },
+                { word: "CODE", emoji: "💻", color: "bg-gray-600" },
+                { word: "QUERY", emoji: "❓", color: "bg-purple-600" },
+                { word: "FOG", emoji: "☁️", color: "bg-blue-300" },
+                { word: "ZINC", emoji: "⚗️", color: "bg-indigo-300" },
+                { word: "PYTHON", emoji: "🐍", color: "bg-green-600" },
+                { word: "JAVASCRIPT", emoji: "📜", color: "bg-yellow-500" },
+                { word: "TAILWIND", emoji: "💨", color: "bg-cyan-500" },
+                { word: "CODING", emoji: "⌨️", color: "bg-gray-800" },
+                { word: "PROGRAM", emoji: "💡", color: "bg-red-400" },
+                { word: "KEYBOARD", emoji: "🎹", color: "bg-black" },
+                { word: "DISPLAY", emoji: "🖥️", color: "bg-blue-500" },
+                { word: "MONITOR", emoji: "📺", color: "bg-gray-500" },
+                { word: "PROJECT", emoji: "📈", color: "bg-lime-500" },
+                { word: "ELEMENT", emoji: "⚛️", color: "bg-amber-500" },
+                { word: "NETWORK", emoji: "🌐", color: "bg-indigo-500" },
+                { word: "MANAGER", emoji: "🧑‍💼", color: "bg-teal-500" },
+                { word: "ANALYST", emoji: "🔍", color: "bg-sky-500" },
+                { word: "DEVELOP", emoji: "🏗️", color: "bg-pink-500" },
+                { word: "FEATURE", emoji: "⭐", color: "bg-emerald-500" },
+                { word: "SCIENCE", emoji: "🔬", color: "bg-rose-500" },
+                { word: "HISTORY", emoji: "🏛️", color: "bg-stone-500" },
+                { word: "GEOLOGY", emoji: "🌋", color: "bg-yellow-600" },
+                { word: "PHYSICS", emoji: "💥", color: "bg-fuchsia-500" },
+                { word: "CHEMICAL", emoji: "🧪", color: "bg-green-700" },
+                { word: "ALGEBRA", emoji: "➗", color: "bg-orange-600" },
+                { word: "DICTIONARY", emoji: "📖", color: "bg-red-600" },
+                { word: "UNIVERSE", emoji: "🪐", color: "bg-black" },
+                { word: "COMMUNICATION", emoji: "🗣️", color: "bg-blue-700" },
+                { word: "COMPUTATIONAL", emoji: "🧠", color: "bg-purple-700" },
+                { word: "ENGINEERING", emoji: "⚙️", color: "bg-gray-700" },
+                { word: "ARCHITECTURE", emoji: "🏘️", color: "bg-lime-700" },
+                { word: "TECHNOLOGY", emoji: "🤖", color: "bg-sky-700" },
+                { word: "EXPERIENCE", emoji: "🌟", color: "bg-pink-700" },
+                { word: "CHALLENGE", emoji: "⚔️", color: "bg-yellow-800" },
+                { word: "PERFORMANCE", emoji: "🚀", color: "bg-emerald-700" },
+                { word: "CONVENIENCE", emoji: "🛍️", color: "bg-orange-500" },
+                { word: "INNOVATION", emoji: "✨", color: "bg-fuchsia-700" },
+                { word: "ADVENTURE", emoji: "🧭", color: "bg-indigo-800" },
+                { word: "GUARDIAN", emoji: "🛡️", color: "bg-stone-700" },
+                { word: "EXPLORATION", emoji: "🔭", color: "bg-teal-700" },
+                { word: "ELEGANT", emoji: "👑", color: "bg-amber-300" },
+                { word: "CREATIVE", emoji: "🎨", color: "bg-pink-300" },
+                { word: "AUTOMATIC", emoji: "🔄", color: "bg-green-300" },
+                { word: "TERRIFIC", emoji: "💯", color: "bg-red-300" },
+                { word: "MAGNIFICENT", emoji: "💎", color: "bg-cyan-300" },
+            ]
+        };
+
+
+        let gameState = {
+            isRunning: false,
+            score: 0,
+            lives: 3,
+            fruits: [], 
+            nextFruitId: 0,
+            fallSpeed: 0.8, 
+            spawnInterval: 2000, 
+            lastSpawnTime: 0,
+            gameAreaHeight: 0,
+            gameAreaWidth: 0,
+            animationFrameId: null,
+            typedWord: '',
+            currentMode: 'FRUITS', // Default mode
+            usedWordsHistory: [], 
+            MAX_HISTORY_SIZE: 10, 
+            
+            lastDifficultyIncreaseTime: 0, 
+            DIFFICULTY_INTERVAL_MS: 30000, 
+            SPAWN_DECREASE_PER_INTERVAL: 100, 
+            FALL_SPEED_INCREASE_PER_INTERVAL: 0.05, 
+        };
+
+        // --- Firebase/Auth Functions ---
+
+        /**
+         * Initializes Firebase and authenticates the user.
+         */
+        async function setupFirebase() {
+            if (!firebaseConfig) {
+                console.error("Firebase config is missing.");
+                userDisplay.textContent = "Error: Config missing";
+                return;
+            }
+
+            try {
+                // setLogLevel('debug'); // Uncomment for debugging
+                const app = firebase.initializeApp(firebaseConfig);
+                db = firebase.getFirestore(app);
+                auth = firebase.getAuth(app);
+                
+                if (initialAuthToken) {
+                    await firebase.signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await firebase.signInAnonymously(auth);
+                }
+
+                firebase.onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userDisplay.textContent = `User: ${userId}`;
+                        loadLeaderboard(); 
+                    } else {
+                        userId = crypto.randomUUID();
+                        userDisplay.textContent = `User: Anonymous (${userId.substring(0, 4)}...)`;
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase setup failed:", error);
+                userDisplay.textContent = "Error: Auth failed";
+            }
+        }
+
+        /**
+         * Saves the current score to the public Firestore leaderboard.
+         */
+        async function saveHighScore() {
+            if (!db || !userId) {
+                console.warn("Firestore not ready. Score not saved.");
+                return;
+            }
+
+            try {
+                const scoreData = {
+                    score: gameState.score,
+                    userId: userId,
+                    mode: gameState.currentMode,
+                    timestamp: firebase.doc.Timestamp.now(),
+                };
+                
+                const docId = `${userId}_${Date.now()}`; 
+                const scoreRef = firebase.doc(db, LEADERBOARD_COLLECTION, docId);
+                await firebase.setDoc(scoreRef, scoreData);
+                console.log("Score saved successfully.");
+            } catch (error) {
+                console.error("Error saving high score:", error);
+            }
+        }
+
+        /**
+         * Fetches and displays the top scores from the leaderboard.
+         */
+        async function loadLeaderboard() {
+            if (!db) {
+                leaderboardList.innerHTML = `<p class="text-red-400 text-center">Leaderboard offline.</p>`;
+                return;
+            }
+
+            leaderboardList.innerHTML = `<p class="text-gray-500 text-center">Fetching scores...</p>`;
+            try {
+                const q = firebase.query(
+                    firebase.collection(db, LEADERBOARD_COLLECTION),
+                    firebase.orderBy('score', 'desc'),
+                    firebase.limit(5)
+                );
+
+                const querySnapshot = await firebase.getDocs(q);
+                let html = '';
+
+                if (querySnapshot.empty) {
+                    html = '<p class="text-gray-400 text-center">No scores yet!</p>';
+                } else {
+                    querySnapshot.forEach((doc, index) => {
+                        const data = doc.data();
+                        const isCurrentUser = data.userId === userId;
+                        const rankClass = isCurrentUser ? 'text-emerald-300 font-extrabold' : 'text-white';
+                        const scoreClass = isCurrentUser ? 'text-yellow-400' : 'text-emerald-400';
+
+                        html += `
+                            <div class="flex justify-between p-2 rounded-lg ${isCurrentUser ? 'bg-gray-700 border border-emerald-500' : 'bg-gray-900'}">
+                                <span class="${rankClass}">#${index + 1} ${isCurrentUser ? '(YOU)' : ''}</span>
+                                <span class="text-sm text-gray-400 truncate w-20 ml-2">${data.userId}</span>
+                                <span class="${scoreClass} font-mono">${data.score} pts</span>
+                            </div>
+                        `;
+                    });
+                }
+                leaderboardList.innerHTML = html;
+
+            } catch (error) {
+                console.error("Error loading leaderboard:", error);
+                leaderboardList.innerHTML = `<p class="text-red-400 text-center">Error loading scores.</p>`;
+            }
+        }
+
+
+        // --- Core Game Functions ---
+
+        function calculateScore(wordLength, isBomb) {
+            let basePoints = isBomb ? 50 : 5; 
+            return basePoints + (wordLength * 3); 
+        }
+
+
+        /**
+         * Initializes or resets the game state.
+         * @param {string} mode - The mode to initialize with.
+         */
+        function initializeGame(mode = gameState.currentMode) {
+            gameState.score = 0;
+            gameState.lives = 3;
+            gameState.fruits = [];
+            gameState.nextFruitId = 0;
+            
+            // Set the new or current mode
+            gameState.currentMode = mode;
+
+            // Reset base difficulty settings
+            gameState.fallSpeed = 0.8;
+            gameState.spawnInterval = 2000;
+            gameState.lastSpawnTime = 0;
+            gameState.lastDifficultyIncreaseTime = 0; 
+            
+            gameState.isRunning = false;
+            gameState.usedWordsHistory = []; 
+
+            typingInput.value = '';
+            gameArea.innerHTML = '';
+            gameOverModal.classList.add('hidden');
+            typingInput.setAttribute('disabled', 'true');
+
+            // Set initial dimensions and display
+            updateDimensions();
+            updateDisplay();
+        }
+
+        /**
+         * Updates the score and lives display.
+         */
+        function updateDisplay() {
+            scoreDisplay.textContent = `Score: ${gameState.score}`;
+            livesDisplay.textContent = gameState.lives;
+            if (gameState.lives <= 1) {
+                livesDisplay.classList.add('text-red-500');
+            } else {
+                livesDisplay.classList.remove('text-red-500');
+            }
+        }
+
+        /**
+         * Starts the game loop.
+         */
+        function startGame() {
+            if (gameState.isRunning) return;
+
+            // Show game elements and enable input
+            gameContainer.classList.remove('hidden');
+            gameHeader.classList.remove('hidden');
+            selectionScreen.classList.add('hidden');
+            
+            typingInput.removeAttribute('disabled');
+            typingInput.focus();
+
+            gameState.isRunning = true;
+            const now = performance.now();
+            gameState.lastSpawnTime = now;
+            gameState.lastDifficultyIncreaseTime = now;
+            gameLoop(now);
+        }
+
+        /**
+         * Main animation loop.
+         * @param {number} timestamp - The current time provided by requestAnimationFrame.
+         */
+        function gameLoop(timestamp) {
+            if (!gameState.isRunning) {
+                cancelAnimationFrame(gameState.animationFrameId);
+                return;
+            }
+
+            // 0. Difficulty Increase Check (Every 30 seconds)
+            if (timestamp - gameState.lastDifficultyIncreaseTime > gameState.DIFFICULTY_INTERVAL_MS) {
+                gameState.spawnInterval = Math.max(800, gameState.spawnInterval - gameState.SPAWN_DECREASE_PER_INTERVAL);
+                gameState.fallSpeed += gameState.FALL_SPEED_INCREASE_PER_INTERVAL; 
+                gameState.lastDifficultyIncreaseTime = timestamp;
+                
+                showMessage(`Difficulty Increased! Speed up!`, 'text-yellow-300');
+            }
+
+            // 1. Spawning Logic (This controls the space/delay between words appearing)
+            if (timestamp - gameState.lastSpawnTime > gameState.spawnInterval) {
+                spawnFruit();
+                gameState.lastSpawnTime = timestamp;
+            }
+
+            // 2. Update Positions and Check Bounds
+            gameState.fruits = gameState.fruits.filter(fruit => {
+                const scoreSpeedBonus = (gameState.score / 50) * 0.2;
+                const currentSpeed = gameState.fallSpeed + scoreSpeedBonus;
+                
+                fruit.y += currentSpeed;
+
+                const element = document.getElementById(`fruit-${fruit.id}`);
+                if (element) {
+                    element.style.transform = `translate(${fruit.x}px, ${fruit.y}px)`;
+                }
+
+                // Check if fruit has fallen past the bottom (Game Over for this word)
+                if (fruit.y > gameState.gameAreaHeight) {
+                    loseLife(fruit); 
+                    return false; 
+                }
+
+                return true;
+            });
+
+            // 3. Request next frame
+            gameState.animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        /**
+         * Spawns a new word element based on the current game mode.
+         */
+        function spawnFruit() {
+            const allWords = WORD_CATEGORIES[gameState.currentMode];
+            if (!allWords || allWords.length === 0) return;
+
+            let selectedWordData;
+            let word;
+
+            // 8% chance to spawn a BOMB
+            if (Math.random() < BOMB_CHANCE) {
+                selectedWordData = BOMB_WORD_CONFIG;
+                word = BOMB_WORD_CONFIG.word;
+            } else if (gameState.currentMode === 'RANDOM') {
+                const availableWords = allWords.filter(wd => !gameState.usedWordsHistory.includes(wd.word));
+
+                if (availableWords.length === 0) {
+                    gameState.usedWordsHistory = [];
+                    selectedWordData = allWords[Math.floor(Math.random() * allWords.length)];
+                } else {
+                    selectedWordData = availableWords[Math.floor(Math.random() * availableWords.length)];
+                }
+
+                word = selectedWordData.word.toUpperCase();
+                
+                gameState.usedWordsHistory.push(word);
+                if (gameState.usedWordsHistory.length > gameState.MAX_HISTORY_SIZE) {
+                    gameState.usedWordsHistory.shift(); 
+                }
+
+            } else {
+                selectedWordData = allWords[Math.floor(Math.random() * allWords.length)];
+                word = selectedWordData.word.toUpperCase();
+            }
+
+            
+            // Calculate width estimate for positioning (rough estimation)
+            const wordWidth = word.length * 24 + 60; 
+
+            const maxX = gameState.gameAreaWidth - wordWidth;
+            if (maxX <= 0) return; 
+            const x = Math.random() * maxX;
+
+            const newFruit = {
+                id: gameState.nextFruitId++,
+                word: word,
+                emoji: selectedWordData.emoji,
+                color: selectedWordData.color,
+                isBomb: selectedWordData.isBomb || false, 
+                y: -50, 
+                x: x,
+                typed: '',
+            };
+
+            gameState.fruits.push(newFruit);
+            renderFruit(newFruit);
+        }
+
+        /**
+         * Renders a word object into the DOM.
+         * @param {object} fruit - The word object to render.
+         */
+        function renderFruit(fruit) {
+            const fruitEl = document.createElement('div');
+            fruitEl.id = `fruit-${fruit.id}`;
+            const bombEffect = fruit.isBomb ? 'text-red-200 border-red-500 animate-pulse' : '';
+            fruitEl.className = `fruit-item ${fruit.color} ${bombEffect}`;
+            
+            fruitEl.innerHTML = `<span>${fruit.emoji} </span> <span id="word-${fruit.id}">${fruit.word}</span>`;
+            fruitEl.style.transform = `translate(${fruit.x}px, ${fruit.y}px)`;
+            gameArea.appendChild(fruitEl);
+        }
+
+        /**
+         * Updates the visual representation of a word based on typed input.
+         */
+        function updateFruitWordDisplay(fruit) {
+            const element = document.getElementById(`fruit-${fruit.id}`);
+            if (!element) return;
+
+            const typedLength = fruit.typed.length;
+            const fullWord = fruit.word;
+
+            const typedPart = fullWord.substring(0, typedLength);
+            const remainingPart = fullWord.substring(typedLength);
+
+            element.querySelector('span:last-child').innerHTML =
+                `<span class="typed-correct">${typedPart}</span>` +
+                `<span class="typed-remaining">${remainingPart}</span>`;
+        }
+
+        /**
+         * Removes the visual focus from all falling words.
+         */
+        function clearFruitFocus() {
+            gameState.fruits.forEach(f => {
+                const element = document.getElementById(`fruit-${f.id}`);
+                if (element) {
+                    element.classList.remove('fruit-focused');
+                }
+            });
+        }
+
+        /**
+         * Handles the player successfully cutting a word.
+         * @param {object} fruit - The word object that was cut.
+         */
+        function cutFruit(fruit) {
+            const points = calculateScore(fruit.word.length, fruit.isBomb);
+            gameState.score += points;
+            updateDisplay();
+
+            showMessage(`+${points} points! ${fruit.isBomb ? '(BOMB BONUS)' : ''}`, fruit.isBomb ? 'text-yellow-400' : 'text-emerald-400');
+
+            // Find and animate the element before removing
+            const element = document.getElementById(`fruit-${fruit.id}`);
+            if (element) {
+                element.style.opacity = '0';
+                element.style.transform += ' scale(1.5) rotate(45deg)';
+                setTimeout(() => element.remove(), 200);
+            }
+
+            // Remove from game state
+            gameState.fruits = gameState.fruits.filter(f => f.id !== fruit.id);
+            typingInput.value = ''; 
+            typingInput.classList.remove('border-yellow-500'); 
+            clearFruitFocus(); 
+        }
+
+        /**
+         * Handles a life being lost.
+         * @param {object} missedFruit - The word object that was missed.
+         */
+        function loseLife(missedFruit) {
+            if (!gameState.isRunning) return;
+
+            const livesLost = missedFruit.isBomb ? 2 : 1;
+            gameState.lives -= livesLost;
+            updateDisplay();
+
+            if (missedFruit.isBomb) {
+                showMessage('BOMB MISSED! DANGER: -2 Lives', 'text-red-700 font-extrabold');
+            } else {
+                showMessage('Item missed! -1 Life', 'text-red-500');
+            }
+
+            typingInput.value = '';
+            clearFruitFocus();
+
+            if (gameState.lives <= 0) {
+                endGame();
+            }
+        }
+
+        /**
+         * Ends the game, saves the score, and shows the final score.
+         */
+        function endGame() {
+            gameState.isRunning = false;
+            cancelAnimationFrame(gameState.animationFrameId);
+            typingInput.setAttribute('disabled', 'true');
+            typingInput.classList.remove('border-yellow-500'); 
+
+            finalScoreDisplay.textContent = gameState.score;
+            gameOverModal.classList.remove('hidden');
+
+            saveHighScore();
+            loadLeaderboard();
+        }
+
+        /**
+         * Shows a temporary message in the message box.
+         */
+        function showMessage(text, colorClass) {
+            messageBox.textContent = text;
+            messageBox.className = `text-center h-6 font-semibold ${colorClass}`;
+            setTimeout(() => {
+                messageBox.textContent = '';
+                messageBox.className = 'text-center h-6 text-red-400 font-semibold';
+            }, 1000);
+        }
+
+        /**
+         * Updates game area dimensions on resize.
+         */
+        function updateDimensions() {
+            gameState.gameAreaHeight = gameArea.clientHeight;
+            gameState.gameAreaWidth = gameArea.clientWidth;
+        }
+
+        // --- Event Listeners ---
+
+        // 1. Initial Start Button
+        beginButton.addEventListener('click', () => {
+            const selectedMode = modeSelector.value;
+            initializeGame(selectedMode);
+            startGame(); // Automatically start the game loop after selection
+        });
+
+        // 2. Restart Game (Same Mode)
+        restartButton.addEventListener('click', () => {
+            initializeGame();
+            startGame();
+        });
+
+        // 3. Choose New Mode (Go back to selection screen)
+        chooseModeButton.addEventListener('click', () => {
+            gameOverModal.classList.add('hidden');
+            gameContainer.classList.add('hidden');
+            gameHeader.classList.add('hidden');
+            selectionScreen.classList.remove('flex'); // Switch back to flex layout
+            selectionScreen.classList.remove('hidden');
+        });
+
+        // 4. Typing input listener
+        typingInput.addEventListener('input', (e) => {
+            if (!gameState.isRunning) {
+                typingInput.value = '';
+                return;
+            }
+
+            const input = e.target.value.toUpperCase();
+            let currentBestMatch = null;
+
+            // Find the word that matches the current input
+            for (const fruit of gameState.fruits) {
+                if (fruit.word.startsWith(input)) {
+                    // Check if it's the full word match first (instant cut)
+                    if (fruit.word === input) {
+                        cutFruit(fruit);
+                        return; 
+                    }
+
+                    // Otherwise, find the *shortest* matching word to focus on
+                    if (!currentBestMatch || fruit.word.length < currentBestMatch.word.length) {
+                        currentBestMatch = fruit;
+                    }
+                }
+            }
+
+            // Apply focus logic and visual updates
+            typingInput.classList.remove('border-yellow-500', 'border-red-500'); 
+            clearFruitFocus(); 
+
+            if (currentBestMatch) {
+                // Focus on the best match
+                gameState.fruits.forEach(f => {
+                    f.typed = (f.id === currentBestMatch.id) ? input : '';
+                    updateFruitWordDisplay(f);
+                });
+
+                const focusElement = document.getElementById(`fruit-${currentBestMatch.id}`);
+                if (focusElement) {
+                    focusElement.classList.add('fruit-focused');
+                }
+
+                typingInput.classList.add('border-yellow-500'); 
+            } else {
+                // No match, clear all highlights
+                gameState.fruits.forEach(f => {
+                    f.typed = '';
+                    updateFruitWordDisplay(f);
+                });
+                if (input.length > 0) {
+                    typingInput.classList.add('border-red-500'); 
+                }
+            }
+        });
+
+        // Resize listener to keep game bounds correct
+        window.addEventListener('resize', updateDimensions);
+
+        // --- Initialization ---
+        if (typeof firebase !== 'undefined') {
+            setupFirebase();
+        } else {
+            console.error("Firebase SDK not loaded.");
+        }
+        // Initially hide the game screen and show the selection screen
+        gameContainer.classList.add('hidden');
+        gameHeader.classList.add('hidden');
+        selectionScreen.classList.remove('hidden');
+
+    </script>
+</body>
+</html>
