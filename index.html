@@ -6,811 +6,816 @@
     <title>Typing Cutter Game</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase Imports -->
+
+    <!-- Firebase Imports - REVERTED TO V11.6.1 -->
     <script type="module">
+        // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // EXPANDED imports for standard authentication: createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, query, collection, getDocs, limit, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Expose Firebase functions globally for use in the main script block
         window.firebase = {
             initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            // Exposing the new Auth methods
+            createUserWithEmailAndPassword, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signOut,
             getFirestore, doc, setDoc, query, collection, getDocs, limit, orderBy, setLogLevel
         };
     </script>
     
     <!-- Use Inter font family -->
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #0d1117; /* Dark background */
+            background-color: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
-        /* Custom CSS for the falling items */
-        .fruit-item {
-            position: absolute;
-            top: 0;
-            left: 0;
-            cursor: pointer;
-            z-index: 10;
-            transition: all 0.2s ease-out;
-            will-change: transform, opacity;
-            padding: 8px 12px; 
-            border-radius: 9999px; 
-            font-size: 1.5rem; 
-            font-weight: 700; 
-            color: #e5e7eb; 
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); 
-            white-space: nowrap;
-            border: 2px solid #374151; 
-        }
-
-        .fruit-item span {
-             text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
-        }
-
-        .fruit-focused {
-            border-color: #34d399; 
-            box-shadow: 0 0 15px rgba(52, 211, 153, 0.8), 
-                        0 4px 10px rgba(0, 0, 0, 0.5); 
-            transform: scale(1.05); 
-        }
-
-        .typed-correct {
-            color: #34d399; 
-            font-weight: 900;
-            text-shadow: 0 0 5px #10b981; 
-        }
-        .typed-remaining {
-            color: #fca5a5; 
-            font-weight: 800; 
-            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
-        }
-
         .fruit-container {
-            position: relative;
-            overflow: hidden;
+            position: absolute;
             width: 100%;
             height: 100%;
+            overflow: hidden;
+        }
+        .fruit {
+            position: absolute;
+            background-color: #fef3c7; /* Light yellow background */
+            border-radius: 9999px; /* Fully rounded */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            padding: 0.5rem 1rem;
+            line-height: 1;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #4b5563; /* Gray text */
+            transition: transform 0.05s ease-out, box-shadow 0.1s ease-in-out;
+            cursor: pointer;
+            z-index: 10;
+            user-select: none;
+        }
+        .fruit-focused {
+            box-shadow: 0 0 0 3px #3b82f6, 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            transform: scale(1.05);
+        }
+        .typed-correct {
+            color: #10b981; /* Green text for correct part */
+            font-weight: 700;
+        }
+        .typed-incorrect {
+            color: #ef4444; /* Red text for incorrect part */
+        }
+        #gameArea {
+            position: relative;
+            background-color: #e5e7eb;
+            width: 100%;
+            max-width: 900px;
+            height: 600px;
+            margin: 0 auto;
             border-radius: 1rem;
-            background: linear-gradient(180deg, rgba(23, 31, 45, 0.95), rgba(13, 17, 23, 0.95));
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+        #typingInput {
+            transition: border-color 0.1s;
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-center p-4">
+<body class="p-4">
 
-    <!-- Main App Container -->
-    <div class="w-full max-w-2xl bg-gray-800 rounded-2xl shadow-2xl p-6 flex flex-col space-y-4">
+    <!-- Game Header and Status -->
+    <header id="gameHeader" class="w-full max-w-4xl bg-white p-4 rounded-xl shadow-md mb-4 flex justify-between items-center hidden">
+        <div class="flex items-center space-x-6">
+            <h1 class="text-2xl font-bold text-gray-800">Typing Cutter</h1>
+            <div id="scoreDisplay" class="text-lg font-medium text-blue-600">Score: 0</div>
+            <div id="livesDisplay" class="text-lg font-medium text-red-600">Lives: 3</div>
+        </div>
+        <button id="pauseButton" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition duration-150">Pause</button>
+    </header>
 
-        <!-- Header (Only visible on Game Screen) -->
-        <header id="game-header" class="hidden justify-between items-center text-white pb-3 border-b border-gray-700">
-            <h1 class="text-3xl font-bold text-emerald-400">Typing Cutter</h1>
-            <div class="flex space-x-6 text-lg">
-                <p id="score-display">Score: 0</p>
-                <p id="lives-display">Lives: <span class="text-red-500">3</span></p>
-                <p id="user-display" class="text-sm text-gray-400 self-end">User: Loading...</p>
-            </div>
-        </header>
+    <!-- Game Area -->
+    <main id="gameContainer" class="w-full max-w-4xl mb-4 relative">
+        <div id="gameArea">
+            <!-- Fruits will be appended here -->
+        </div>
+        
+        <!-- Game Input and Message Area -->
+        <div class="mt-4 flex flex-col items-center">
+            <input type="text" id="typingInput" class="w-full max-w-md p-4 border-4 border-gray-300 rounded-xl text-2xl text-center focus:outline-none focus:border-blue-500 shadow-xl" placeholder="Start typing the falling word..." autocomplete="off">
+            <div id="messageBox" class="mt-3 text-lg font-semibold text-gray-700 p-2 rounded-lg bg-white shadow"></div>
+        </div>
+    </main>
 
-
-        <!-- 1. MODE SELECTION SCREEN -->
-        <div id="selection-screen" class="flex flex-col items-center justify-center h-[50vh] space-y-8">
-            <h2 class="text-4xl font-extrabold text-emerald-400">Choose Your Challenge</h2>
-            <div class="w-full max-w-sm">
-                <label for="initial-mode-selector" class="block text-xl font-medium text-gray-300 mb-2">Select Word List:</label>
-                <select
-                    id="initial-mode-selector"
-                    class="w-full p-4 text-xl rounded-xl bg-gray-700 text-white border-2 border-gray-500 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition-all shadow-lg"
-                >
-                    <option value="FRUITS">🍉 Fruit Names (Easy)</option>
-                    <option value="CARS">🚗 Car Names (Medium)</option>
-                    <option value="PETS">🐾 Pet Names (Medium)</option>
-                    <option value="PEOPLE">🧑 People Names (Medium)</option>
-                    <option value="RANDOM">✨ Random Words (Hard - Long words)</option>
-                </select>
-            </div>
+    <!-- Selection Screen & Leaderboard (Hidden initially) -->
+    <section id="selectionScreen" class="w-full max-w-4xl p-6 bg-white rounded-xl shadow-2xl flex flex-col md:flex-row space-y-6 md:space-y-0 md:space-x-8">
+        
+        <!-- Left Column: Game Setup & Auth -->
+        <div class="flex-1 flex flex-col items-center">
+            <h2 class="text-3xl font-extrabold text-gray-900 mb-6 border-b-2 border-blue-500 pb-2">Start Game</h2>
             
-            <button id="begin-button" class="px-8 py-4 text-2xl font-bold rounded-xl bg-emerald-500 text-gray-900 hover:bg-emerald-400 transition-colors shadow-xl transform hover:scale-105">
-                Begin Typing
-            </button>
-        </div>
+            <div class="w-full max-w-sm">
+                <label for="difficultySelect" class="block text-lg font-medium text-gray-700 mb-2">Select Difficulty:</label>
+                <select id="difficultySelect" class="w-full p-3 border border-gray-300 rounded-lg text-lg focus:ring-blue-500 focus:border-blue-500 mb-6">
+                    <option value="easy">Easy (Slower, Shorter Words)</option>
+                    <option value="medium" selected>Medium (Standard Speed & Length)</option>
+                    <option value="hard">Hard (Faster, Longer Words)</option>
+                    <option value="extreme">Extreme (Very Fast, Random)</option>
+                </select>
 
+                <!-- NEW AUTHENTICATION BLOCK -->
+                <div id="authContainer" class="p-4 border border-gray-200 rounded-xl mb-6 bg-white shadow-lg">
+                    <p class="text-sm text-gray-600 mb-3 text-center font-medium" id="authStatusText">Sign in or play anonymously!</p>
+                    
+                    <div id="authInputs">
+                        <input type="email" id="emailInput" placeholder="Email" class="w-full p-2 border border-gray-300 rounded-lg text-base focus:ring-purple-500 focus:border-purple-500 mb-3">
+                        <input type="password" id="passwordInput" placeholder="Password" class="w-full p-2 border border-gray-300 rounded-lg text-base focus:ring-purple-500 focus:border-purple-500 mb-4">
+                        
+                        <div class="flex space-x-2 mb-4">
+                            <button id="loginEmailButton" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-1 rounded-lg text-sm transition duration-150">
+                                Log In
+                            </button>
+                            <button id="signupEmailButton" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-1 rounded-lg text-sm transition duration-150">
+                                Sign Up
+                            </button>
+                        </div>
+                        
+                        <div class="relative flex items-center justify-center my-4">
+                            <div class="flex-grow border-t border-gray-300"></div>
+                            <span class="flex-shrink mx-4 text-gray-500 text-sm">OR</span>
+                            <div class="flex-grow border-t border-gray-300"></div>
+                        </div>
 
-        <!-- 2. GAME SCREEN (Initially Hidden) -->
-        <div id="game-container" class="hidden w-full flex flex-col space-y-4">
-            <!-- Game Area (The Falling Zone) -->
-            <div id="game-area" class="fruit-container h-[50vh] min-h-[300px]">
-                <!-- Falling fruits will be injected here -->
-            </div>
+                        <button id="loginGoogleButton" class="w-full flex items-center justify-center bg-red-500 hover:bg-red-600 text-white font-medium py-2 rounded-lg text-sm transition duration-150 shadow-md">
+                            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20"><path d="M10 0C4.48 0 0 4.48 0 10c0 4.28 2.65 7.92 6.38 9.38L7.5 17.5V11h-2v-2h2V8.5c0-1.92 1.17-2.98 2.89-2.98 0.83 0 1.55 0.06 1.77 0.09V6h-1.18c-0.93 0-1.11 0.44-1.11 1.09V9h2.2l-0.3 2H9v6.5l1.52 1.88c3.73-1.46 6.38-5.1 6.38-9.38C20 4.48 15.52 0 10 0zM10 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" clip-rule="evenodd" fill-rule="evenodd"></path></svg>
+                            Sign in with Google
+                        </button>
+                    </div>
 
-            <!-- Input and Messages -->
-            <div class="pt-4 space-y-3">
-                <input
-                    type="text"
-                    id="typing-input"
-                    placeholder="Type the word here to cut the item..."
-                    autofocus
-                    disabled
-                    class="w-full p-3 text-lg rounded-xl bg-gray-700 text-white border-2 border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition-all shadow-lg"
-                >
-                <div id="message-box" class="text-center h-6 text-red-400 font-semibold"></div>
-            </div>
-
-            <!-- Leaderboard Section -->
-            <div class="pt-6 border-t border-gray-700">
-                <h2 class="text-2xl font-bold text-yellow-400 mb-3 text-center">Top 5 Leaderboard</h2>
-                <div id="leaderboard-list" class="space-y-2">
-                    <p class="text-gray-400 text-center">Loading scores...</p>
+                    <div id="loggedInUserDisplay" class="hidden text-center">
+                        <p class="text-base text-gray-800 font-semibold mb-2">Logged in as: <span id="currentUserName" class="text-purple-600"></span></p>
+                        <p class="text-sm text-gray-500 mb-4">(Your scores are saved)</p>
+                        <button id="logoutButton" class="w-full bg-gray-400 hover:bg-gray-500 text-white font-medium py-2 rounded-lg text-sm transition duration-150">
+                            Log Out
+                        </button>
+                    </div>
                 </div>
+                <!-- END NEW AUTHENTICATION BLOCK -->
+
+                <label for="nameInput" class="block text-lg font-medium text-gray-700 mb-2">Display Name (Visible in Leaderboard):</label>
+                <!-- This input is now only for the display name, not authentication -->
+                <input type="text" id="nameInput" placeholder="Player Name" maxlength="20" class="w-full p-3 border border-gray-300 rounded-lg text-lg focus:ring-blue-500 focus:border-blue-500 mb-6">
+
+                <button id="startGameButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg transition duration-150 transform hover:scale-[1.01] text-xl">
+                    Start Game
+                </button>
             </div>
         </div>
-
-    </div>
-
-    <!-- Game Over Modal -->
-    <div id="game-over-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl text-white text-center w-full max-w-sm border-2 border-red-500">
-            <h2 class="text-4xl font-extrabold text-red-400 mb-4">GAME OVER!</h2>
-            <p class="text-xl mb-6">Final Score: <span id="final-score" class="font-bold text-emerald-400">0</span></p>
-            <div class="flex flex-col space-y-3">
-                <button id="restart-button" class="px-6 py-3 text-lg font-bold rounded-lg bg-emerald-500 text-gray-900 hover:bg-emerald-400 transition-colors">
-                    Play Again (Same Mode)
-                </button>
-                <button id="choose-mode-button" class="px-6 py-3 text-lg font-bold rounded-lg bg-gray-600 text-white hover:bg-gray-500 transition-colors">
-                    Choose New Mode
-                </button>
+        
+        <!-- Right Column: Leaderboard -->
+        <div class="flex-1">
+            <h2 class="text-3xl font-extrabold text-gray-900 mb-6 border-b-2 border-purple-500 pb-2 text-center">Top 10 High Scores</h2>
+            <div id="leaderboardList" class="space-y-3">
+                <p class="text-center text-gray-500" id="loadingLeaderboard">Loading leaderboard...</p>
+                <!-- High scores will be inserted here -->
             </div>
+        </div>
+    </section>
+
+    <!-- Modal for Error/Message (Instead of alert()) -->
+    <div id="modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center hidden z-50 transition-opacity duration-300">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm transform transition-all duration-300 scale-95" role="alert">
+            <h3 id="modalTitle" class="text-xl font-bold mb-3 text-red-600">Error</h3>
+            <p id="modalMessage" class="text-gray-700 mb-4">An error occurred.</p>
+            <button id="modalCloseButton" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 rounded-lg transition duration-150">Close</button>
         </div>
     </div>
 
 
     <script>
-        // --- Firebase Globals (MUST be used) ---
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        let db, auth, userId;
-        const LEADERBOARD_COLLECTION = `artifacts/${appId}/public/data/leaderboard`;
-        const userDisplay = document.getElementById('user-display');
+        // Use the firebase config provided by the user, although the canvas environment
+        // will typically provide a global __firebase_config variable.
+        const firebaseConfig = {
+          apiKey: "AIzaSyAfF5yossFVfBx9HFAKz2tnGNuZX_79WWI",
+          authDomain: "games-e4152.firebaseapp.com",
+          projectId: "games-e4152",
+          storageBucket: "games-e4152.firebasestorage.app",
+          messagingSenderId: "1020207358463",
+          appId: "1:1020207358463:web:dec5d12311a73c4c5487ca"
+        };
         
-        // --- Game Setup and Constants ---
-        const selectionScreen = document.getElementById('selection-screen');
-        const gameContainer = document.getElementById('game-container');
-        const gameHeader = document.getElementById('game-header');
-        const gameArea = document.getElementById('game-area');
-        const typingInput = document.getElementById('typing-input');
-        const scoreDisplay = document.getElementById('score-display');
-        const livesDisplay = document.getElementById('lives-display').querySelector('span');
-        const beginButton = document.getElementById('begin-button'); // New button
-        const messageBox = document.getElementById('message-box');
-        const gameOverModal = document.getElementById('game-over-modal');
-        const finalScoreDisplay = document.getElementById('final-score');
-        const restartButton = document.getElementById('restart-button');
-        const chooseModeButton = document.getElementById('choose-mode-button'); // New button
-        const modeSelector = document.getElementById('initial-mode-selector');
-        const leaderboardList = document.getElementById('leaderboard-list');
+        // Environment variables for Firebase setup
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // Prioritize the environment variable if available, otherwise use the hardcoded config.
+        const effectiveFirebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : JSON.stringify(firebaseConfig));
 
-        const BOMB_CHANCE = 0.08; // 8% chance to spawn a bomb
-        const BOMB_WORD_CONFIG = {
-            word: "BOMB",
-            emoji: "💣",
-            color: "bg-red-900",
-            isBomb: true,
-        };
-
-        const WORD_CATEGORIES = {
-            FRUITS: [
-                { word: "APPLE", emoji: "🍎", color: "bg-red-500" },
-                { word: "BANANA", emoji: "🍌", color: "bg-yellow-500" },
-                { word: "CHERRY", emoji: "🍒", color: "bg-red-600" },
-                { word: "GRAPE", emoji: "🍇", color: "bg-purple-500" },
-                { word: "MANGO", emoji: "🥭", color: "bg-orange-500" },
-                { word: "PEACH", emoji: "🍑", color: "bg-pink-500" },
-                { word: "LEMON", emoji: "🍋", color: "bg-yellow-400" },
-                { word: "LIME", emoji: "🍈", color: "bg-green-500" },
-                { word: "KIWI", emoji: "🥝", color: "bg-green-700" },
-            ],
-            CARS: [
-                { word: "HONDA", emoji: "🚗", color: "bg-blue-600" },
-                { word: "TESLA", emoji: "🚘", color: "bg-red-500" },
-                { word: "FORD", emoji: "🚚", color: "bg-gray-500" },
-                { word: "AUDI", emoji: "🏎️", color: "bg-black" },
-                { word: "JEEP", emoji: "🚙", color: "bg-green-700" },
-                { word: "SUBARU", emoji: "🚖", color: "bg-cyan-500" },
-            ],
-            PETS: [
-                { word: "DOG", emoji: "🐕", color: "bg-yellow-400" },
-                { word: "CAT", emoji: "🐈", color: "bg-pink-400" },
-                { word: "BIRD", emoji: "🐦", color: "bg-sky-400" },
-                { word: "FISH", emoji: "🐠", color: "bg-blue-400" },
-                { word: "RABBIT", emoji: "🐇", color: "bg-zinc-200" },
-                { word: "SNAKE", emoji: "🐍", color: "bg-green-500" },
-            ],
-            PEOPLE: [
-                { word: "JOHN", emoji: "🧑", color: "bg-orange-400" },
-                { word: "JANE", emoji: "👩", color: "bg-fuchsia-400" },
-                { word: "CHLOE", emoji: "👧", color: "bg-yellow-200" },
-                { word: "MAX", emoji: "👦", color: "bg-lime-500" },
-                { word: "ALEX", emoji: "👨", color: "bg-sky-500" },
-                { word: "SARAH", emoji: "👱‍♀️", color: "bg-amber-200" },
-            ],
-            RANDOM: [
-                { word: "KEY", emoji: "🔑", color: "bg-yellow-700" },
-                { word: "BOX", emoji: "📦", color: "bg-orange-700" },
-                { word: "CODE", emoji: "💻", color: "bg-gray-600" },
-                { word: "QUERY", emoji: "❓", color: "bg-purple-600" },
-                { word: "FOG", emoji: "☁️", color: "bg-blue-300" },
-                { word: "ZINC", emoji: "⚗️", color: "bg-indigo-300" },
-                { word: "PYTHON", emoji: "🐍", color: "bg-green-600" },
-                { word: "JAVASCRIPT", emoji: "📜", color: "bg-yellow-500" },
-                { word: "TAILWIND", emoji: "💨", color: "bg-cyan-500" },
-                { word: "CODING", emoji: "⌨️", color: "bg-gray-800" },
-                { word: "PROGRAM", emoji: "💡", color: "bg-red-400" },
-                { word: "KEYBOARD", emoji: "🎹", color: "bg-black" },
-                { word: "DISPLAY", emoji: "🖥️", color: "bg-blue-500" },
-                { word: "MONITOR", emoji: "📺", color: "bg-gray-500" },
-                { word: "PROJECT", emoji: "📈", color: "bg-lime-500" },
-                { word: "ELEMENT", emoji: "⚛️", color: "bg-amber-500" },
-                { word: "NETWORK", emoji: "🌐", color: "bg-indigo-500" },
-                { word: "MANAGER", emoji: "🧑‍💼", color: "bg-teal-500" },
-                { word: "ANALYST", emoji: "🔍", color: "bg-sky-500" },
-                { word: "DEVELOP", emoji: "🏗️", color: "bg-pink-500" },
-                { word: "FEATURE", emoji: "⭐", color: "bg-emerald-500" },
-                { word: "SCIENCE", emoji: "🔬", color: "bg-rose-500" },
-                { word: "HISTORY", emoji: "🏛️", color: "bg-stone-500" },
-                { word: "GEOLOGY", emoji: "🌋", color: "bg-yellow-600" },
-                { word: "PHYSICS", emoji: "💥", color: "bg-fuchsia-500" },
-                { word: "CHEMICAL", emoji: "🧪", color: "bg-green-700" },
-                { word: "ALGEBRA", emoji: "➗", color: "bg-orange-600" },
-                { word: "DICTIONARY", emoji: "📖", color: "bg-red-600" },
-                { word: "UNIVERSE", emoji: "🪐", color: "bg-black" },
-                { word: "COMMUNICATION", emoji: "🗣️", color: "bg-blue-700" },
-                { word: "COMPUTATIONAL", emoji: "🧠", color: "bg-purple-700" },
-                { word: "ENGINEERING", emoji: "⚙️", color: "bg-gray-700" },
-                { word: "ARCHITECTURE", emoji: "🏘️", color: "bg-lime-700" },
-                { word: "TECHNOLOGY", emoji: "🤖", color: "bg-sky-700" },
-                { word: "EXPERIENCE", emoji: "🌟", color: "bg-pink-700" },
-                { word: "CHALLENGE", emoji: "⚔️", color: "bg-yellow-800" },
-                { word: "PERFORMANCE", emoji: "🚀", color: "bg-emerald-700" },
-                { word: "CONVENIENCE", emoji: "🛍️", color: "bg-orange-500" },
-                { word: "INNOVATION", emoji: "✨", color: "bg-fuchsia-700" },
-                { word: "ADVENTURE", emoji: "🧭", color: "bg-indigo-800" },
-                { word: "GUARDIAN", emoji: "🛡️", color: "bg-stone-700" },
-                { word: "EXPLORATION", emoji: "🔭", color: "bg-teal-700" },
-                { word: "ELEGANT", emoji: "👑", color: "bg-amber-300" },
-                { word: "CREATIVE", emoji: "🎨", color: "bg-pink-300" },
-                { word: "AUTOMATIC", emoji: "🔄", color: "bg-green-300" },
-                { word: "TERRIFIC", emoji: "💯", color: "bg-red-300" },
-                { word: "MAGNIFICENT", emoji: "💎", color: "bg-cyan-300" },
-            ]
-        };
-
+        let db, auth;
+        let userId = 'anonymous'; // Default ID
+        let userName = 'Anonymous Player'; // Default name
 
         let gameState = {
             isRunning: false,
             score: 0,
             lives: 3,
-            fruits: [], 
-            nextFruitId: 0,
-            fallSpeed: 0.8, 
-            spawnInterval: 2000, 
+            difficulty: 'medium',
+            level: 1,
+            timeElapsed: 0,
+            wordsTyped: 0,
+            spawnRate: 1500, // milliseconds
+            dropSpeed: 1, // pixels per frame
+            fruits: [],
             lastSpawnTime: 0,
-            gameAreaHeight: 0,
             gameAreaWidth: 0,
-            animationFrameId: null,
-            typedWord: '',
-            currentMode: 'FRUITS', // Default mode
-            usedWordsHistory: [], 
-            MAX_HISTORY_SIZE: 10, 
-            
-            lastDifficultyIncreaseTime: 0, 
-            DIFFICULTY_INTERVAL_MS: 30000, 
-            SPAWN_DECREASE_PER_INTERVAL: 100, 
-            FALL_SPEED_INCREASE_PER_INTERVAL: 0.05, 
+            gameAreaHeight: 0
         };
 
-        // --- Firebase/Auth Functions ---
+        let isPaused = false;
+        let animationFrameId;
 
-        /**
-         * Initializes Firebase and authenticates the user.
-         */
-        async function setupFirebase() {
-            if (!firebaseConfig) {
-                console.error("Firebase config is missing.");
-                userDisplay.textContent = "Error: Config missing";
-                return;
+        const FRUIT_WORDS = ['apple', 'banana', 'cherry', 'grape', 'lemon', 'mango', 'orange', 'pear', 'plum', 'kiwi', 'lime', 'melon', 'apricot', 'peach', 'guava', 'fig', 'berry'];
+        const GAME_OVER_WORDS = ['FAIL', 'CRASH', 'GAMEOVER', 'LOST', 'FADE']; // Words for when the game ends
+
+        // DOM elements
+        const gameArea = document.getElementById('gameArea');
+        const typingInput = document.getElementById('typingInput');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const livesDisplay = document.getElementById('livesDisplay');
+        const messageBox = document.getElementById('messageBox');
+        const selectionScreen = document.getElementById('selectionScreen');
+        const gameContainer = document.getElementById('gameContainer');
+        const gameHeader = document.getElementById('gameHeader');
+        const nameInput = document.getElementById('nameInput');
+        const startGameButton = document.getElementById('startGameButton');
+        const difficultySelect = document.getElementById('difficultySelect');
+        const pauseButton = document.getElementById('pauseButton');
+        const leaderboardList = document.getElementById('leaderboardList');
+        const loadingLeaderboard = document.getElementById('loadingLeaderboard');
+
+        // Modal elements
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalCloseButton = document.getElementById('modalCloseButton');
+
+        // New Auth elements
+        const emailInput = document.getElementById('emailInput');
+        const passwordInput = document.getElementById('passwordInput');
+        const loginEmailButton = document.getElementById('loginEmailButton');
+        const signupEmailButton = document.getElementById('signupEmailButton');
+        const loginGoogleButton = document.getElementById('loginGoogleButton');
+        const logoutButton = document.getElementById('logoutButton');
+        const authStatusText = document.getElementById('authStatusText');
+        const authInputs = document.getElementById('authInputs');
+        const loggedInUserDisplay = document.getElementById('loggedInUserDisplay');
+        const currentUserNameSpan = document.getElementById('currentUserName');
+
+
+        // --- Utility Functions ---
+
+        function showModal(title, message, isError = true) {
+            modalTitle.textContent = title;
+            modalTitle.classList.toggle('text-red-600', isError);
+            modalTitle.classList.toggle('text-green-600', !isError);
+            modalMessage.textContent = message;
+            modal.classList.remove('hidden');
+        }
+
+        modalCloseButton.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        function getRandomWord(difficulty) {
+            let words = FRUIT_WORDS;
+            if (difficulty === 'easy') {
+                words = words.filter(w => w.length <= 5);
+            } else if (difficulty === 'hard') {
+                words = words.filter(w => w.length >= 5);
+            } else if (difficulty === 'extreme') {
+                // Keep all words, speed is the main factor
             }
+            if (words.length === 0) words = FRUIT_WORDS; // Fallback
+            return words[Math.floor(Math.random() * words.length)];
+        }
 
-            try {
-                // setLogLevel('debug'); // Uncomment for debugging
-                const app = firebase.initializeApp(firebaseConfig);
-                db = firebase.getFirestore(app);
-                auth = firebase.getAuth(app);
-                
-                if (initialAuthToken) {
-                    await firebase.signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await firebase.signInAnonymously(auth);
+        let fruitIdCounter = 0;
+        function createFruit(word, speedFactor = 1) {
+            const id = fruitIdCounter++;
+            const element = document.createElement('div');
+            element.id = `fruit-${id}`;
+            element.className = 'fruit';
+            element.innerHTML = `<span class="word-display">${word}</span>`;
+            
+            // Set initial position
+            const width = gameArea.clientWidth;
+            // X position: avoid edges
+            const x = Math.random() * (width - 150) + 75; 
+            const y = -50; // Start above the screen
+            
+            element.style.left = `${x}px`;
+            element.style.top = `${y}px`;
+
+            gameArea.appendChild(element);
+
+            return {
+                id,
+                word,
+                x,
+                y,
+                speed: gameState.dropSpeed * speedFactor,
+                typed: '',
+                element,
+                width: element.offsetWidth
+            };
+        }
+
+        function updateFruitWordDisplay(fruit) {
+            let html = '';
+            const typed = fruit.typed;
+            const word = fruit.word;
+
+            if (word.startsWith(typed)) {
+                // Correct match
+                html += `<span class="typed-correct">${word.substring(0, typed.length)}</span>`;
+                html += `<span>${word.substring(typed.length)}</span>`;
+            } else if (typed.length > 0) {
+                // Incorrect match: highlight typed part in red
+                let matchLength = 0;
+                while (matchLength < typed.length && matchLength < word.length && typed[matchLength] === word[matchLength]) {
+                    matchLength++;
                 }
+                
+                html += `<span class="typed-correct">${word.substring(0, matchLength)}</span>`;
+                html += `<span class="typed-incorrect">${word.substring(matchLength, typed.length)}</span>`;
+                html += `<span>${word.substring(typed.length)}</span>`;
+            } else {
+                // Nothing typed
+                html = `<span>${word}</span>`;
+            }
+            
+            fruit.element.querySelector('.word-display').innerHTML = html;
+        }
 
-                firebase.onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        userDisplay.textContent = `User: ${userId}`;
-                        loadLeaderboard(); 
-                    } else {
-                        userId = crypto.randomUUID();
-                        userDisplay.textContent = `User: Anonymous (${userId.substring(0, 4)}...)`;
-                    }
-                });
-            } catch (error) {
-                console.error("Firebase setup failed:", error);
-                userDisplay.textContent = "Error: Auth failed";
+        // --- Game Logic ---
+
+        function updateDimensions() {
+            gameState.gameAreaWidth = gameArea.clientWidth;
+            gameState.gameAreaHeight = gameArea.clientHeight;
+        }
+
+        function spawnFruit() {
+            if (!gameState.isRunning) return;
+
+            const difficulty = gameState.difficulty;
+            let speedFactor = 1;
+            let spawnRateFactor = 1;
+
+            if (difficulty === 'easy') {
+                speedFactor = 0.8;
+                spawnRateFactor = 1.5;
+            } else if (difficulty === 'hard') {
+                speedFactor = 1.5;
+                spawnRateFactor = 0.8;
+            } else if (difficulty === 'extreme') {
+                speedFactor = 2.0;
+                spawnRateFactor = 0.5;
+            }
+            
+            const now = performance.now();
+            const effectiveSpawnRate = gameState.spawnRate * spawnRateFactor;
+
+            if (now - gameState.lastSpawnTime > effectiveSpawnRate) {
+                const word = getRandomWord(difficulty);
+                const newFruit = createFruit(word, speedFactor);
+                gameState.fruits.push(newFruit);
+                gameState.lastSpawnTime = now;
             }
         }
 
-        /**
-         * Saves the current score to the public Firestore leaderboard.
-         */
-        async function saveHighScore() {
-            if (!db || !userId) {
-                console.warn("Firestore not ready. Score not saved.");
+        function updateGame() {
+            if (!gameState.isRunning || isPaused) return;
+
+            gameState.timeElapsed += 16; // Approximation for 60 FPS
+
+            // 1. Update fruit positions
+            gameState.fruits.forEach(fruit => {
+                fruit.y += fruit.speed;
+                fruit.element.style.top = `${fruit.y}px`;
+            });
+
+            // 2. Check for missed fruits (out of bounds)
+            const missedFruits = gameState.fruits.filter(fruit => fruit.y > gameState.gameAreaHeight);
+
+            missedFruits.forEach(fruit => {
+                // Only lose a life if it's a real word fruit
+                if (!GAME_OVER_WORDS.includes(fruit.word)) {
+                    gameState.lives--;
+                    messageBox.textContent = 'MISSED! -1 Life';
+                    messageBox.classList.remove('text-gray-700', 'text-green-600');
+                    messageBox.classList.add('text-red-600');
+                    setTimeout(() => messageBox.textContent = '', 500);
+                }
+                gameArea.removeChild(fruit.element);
+            });
+
+            // Remove missed fruits
+            gameState.fruits = gameState.fruits.filter(fruit => fruit.y <= gameState.gameAreaHeight);
+
+            // 3. Update displays
+            livesDisplay.textContent = `Lives: ${gameState.lives}`;
+            scoreDisplay.textContent = `Score: ${gameState.score}`;
+
+            // 4. Game Over Check
+            if (gameState.lives <= 0) {
+                endGame(true);
                 return;
             }
 
+            // 5. Spawn new fruits
+            spawnFruit();
+
+            animationFrameId = requestAnimationFrame(updateGame);
+        }
+
+        function gameLoop() {
+            if (!gameState.isRunning) return;
+            animationFrameId = requestAnimationFrame(updateGame);
+        }
+
+        function startGame() {
+            // Read settings
+            gameState.difficulty = difficultySelect.value;
+            
+            // Set initial state
+            gameState.score = 0;
+            gameState.lives = 3;
+            gameState.timeElapsed = 0;
+            gameState.wordsTyped = 0;
+            gameState.fruits = [];
+            gameState.isRunning = true;
+            isPaused = false;
+            typingInput.value = '';
+            typingInput.focus();
+            
+            // Clear all fruit elements
+            gameArea.innerHTML = ''; 
+
+            // Update UI visibility
+            selectionScreen.classList.add('hidden');
+            gameContainer.classList.remove('hidden');
+            gameHeader.classList.remove('hidden');
+
+            updateDimensions();
+            gameLoop();
+        }
+
+        function endGame(lost) {
+            gameState.isRunning = false;
+            isPaused = true;
+            cancelAnimationFrame(animationFrameId);
+
+            typingInput.value = '';
+            typingInput.blur();
+            
+            // Show Game Over message
+            messageBox.classList.remove('text-gray-700', 'text-green-600');
+            messageBox.classList.add('text-red-600');
+            messageBox.textContent = lost ? 'GAME OVER!' : 'TIME UP!'; 
+
+            // Spawn a final set of game over words
+            GAME_OVER_WORDS.forEach((word, index) => {
+                const fruit = createFruit(word, 0.5); // Slower, just to display
+                fruit.element.style.left = `${100 + index * 150}px`;
+                fruit.element.style.top = `${gameState.gameAreaHeight / 3}px`;
+                fruit.element.style.backgroundColor = '#fca5a5';
+                fruit.element.style.fontSize = '2rem';
+                gameState.fruits.push(fruit);
+            });
+            
+            // Save the score
+            saveHighScore(gameState.score, userName);
+
+            // Show modal and wait for user to close before returning to selection screen
+            showModal('Game Over', `You scored ${gameState.score} points on ${gameState.difficulty} difficulty.`, false);
+            modalCloseButton.onclick = () => {
+                modal.classList.add('hidden');
+                // Return to selection screen
+                gameContainer.classList.add('hidden');
+                gameHeader.classList.add('hidden');
+                selectionScreen.classList.remove('hidden');
+                typingInput.classList.remove('border-red-500', 'border-yellow-500');
+                // Clean up game over words
+                gameState.fruits.forEach(f => gameArea.removeChild(f.element));
+                gameState.fruits = [];
+            }
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            pauseButton.textContent = isPaused ? 'Resume' : 'Pause';
+            if (isPaused) {
+                messageBox.textContent = 'PAUSED';
+                typingInput.blur();
+                cancelAnimationFrame(animationFrameId);
+            } else {
+                messageBox.textContent = '';
+                typingInput.focus();
+                gameLoop();
+            }
+        }
+        
+        // --- Firebase/Firestore Logic ---
+        
+        // Firestore paths
+        const getScoresCollectionRef = () => firebase.collection(db, `artifacts/${appId}/public/data/high_scores`);
+
+        async function saveHighScore(score, name) {
+            if (score <= 0) return;
+
+            const scoreData = {
+                userId: userId,
+                name: name,
+                score: score,
+                difficulty: gameState.difficulty,
+                timestamp: firebase.doc.serverTimestamp() // Firestore timestamp
+            };
+
             try {
-                const scoreData = {
-                    score: gameState.score,
-                    userId: userId,
-                    mode: gameState.currentMode,
-                    timestamp: firebase.doc.Timestamp.now(),
-                };
-                
-                const docId = `${userId}_${Date.now()}`; 
-                const scoreRef = firebase.doc(db, LEADERBOARD_COLLECTION, docId);
-                await firebase.setDoc(scoreRef, scoreData);
-                console.log("Score saved successfully.");
+                // Add a new document with a generated ID
+                await firebase.addDoc(getScoresCollectionRef(), scoreData);
+                fetchLeaderboard(); // Refresh leaderboard
+                console.log("High score saved successfully.");
             } catch (error) {
                 console.error("Error saving high score:", error);
             }
         }
 
-        /**
-         * Fetches and displays the top scores from the leaderboard.
-         */
-        async function loadLeaderboard() {
-            if (!db) {
-                leaderboardList.innerHTML = `<p class="text-red-400 text-center">Leaderboard offline.</p>`;
-                return;
-            }
-
-            leaderboardList.innerHTML = `<p class="text-gray-500 text-center">Fetching scores...</p>`;
+        async function fetchLeaderboard() {
+            if (!db) return;
+            loadingLeaderboard.textContent = "Loading leaderboard...";
+            leaderboardList.innerHTML = '';
+            
             try {
-                const q = firebase.query(
-                    firebase.collection(db, LEADERBOARD_COLLECTION),
+                const scoresQuery = firebase.query(
+                    getScoresCollectionRef(),
                     firebase.orderBy('score', 'desc'),
-                    firebase.limit(5)
+                    firebase.limit(10)
                 );
+                
+                const querySnapshot = await firebase.getDocs(scoresQuery);
+                const scores = [];
+                querySnapshot.forEach((doc) => {
+                    scores.push(doc.data());
+                });
 
-                const querySnapshot = await firebase.getDocs(q);
-                let html = '';
-
-                if (querySnapshot.empty) {
-                    html = '<p class="text-gray-400 text-center">No scores yet!</p>';
-                } else {
-                    querySnapshot.forEach((doc, index) => {
-                        const data = doc.data();
-                        const isCurrentUser = data.userId === userId;
-                        const rankClass = isCurrentUser ? 'text-emerald-300 font-extrabold' : 'text-white';
-                        const scoreClass = isCurrentUser ? 'text-yellow-400' : 'text-emerald-400';
-
-                        html += `
-                            <div class="flex justify-between p-2 rounded-lg ${isCurrentUser ? 'bg-gray-700 border border-emerald-500' : 'bg-gray-900'}">
-                                <span class="${rankClass}">#${index + 1} ${isCurrentUser ? '(YOU)' : ''}</span>
-                                <span class="text-sm text-gray-400 truncate w-20 ml-2">${data.userId}</span>
-                                <span class="${scoreClass} font-mono">${data.score} pts</span>
-                            </div>
-                        `;
-                    });
+                if (scores.length === 0) {
+                    loadingLeaderboard.textContent = "No scores yet. Be the first!";
+                    return;
                 }
-                leaderboardList.innerHTML = html;
+                
+                // Clear loading text and populate list
+                loadingLeaderboard.textContent = "";
+                scores.forEach((data, index) => {
+                    const li = document.createElement('div');
+                    li.className = 'flex justify-between items-center p-3 bg-gray-50 rounded-lg shadow-sm';
+                    
+                    const rank = index + 1;
+                    const rankClass = rank === 1 ? 'text-yellow-600' : rank === 2 ? 'text-gray-500' : rank === 3 ? 'text-amber-700' : 'text-gray-700';
+
+                    li.innerHTML = `
+                        <span class="font-extrabold ${rankClass} w-8 text-left">#${rank}</span>
+                        <span class="flex-1 font-semibold text-gray-800 truncate">${data.name}</span>
+                        <span class="text-sm text-gray-500 w-16 text-center">${data.difficulty.charAt(0).toUpperCase() + data.difficulty.slice(1)}</span>
+                        <span class="font-bold text-lg text-blue-600 w-16 text-right">${data.score}</span>
+                    `;
+                    leaderboardList.appendChild(li);
+                });
 
             } catch (error) {
-                console.error("Error loading leaderboard:", error);
-                leaderboardList.innerHTML = `<p class="text-red-400 text-center">Error loading scores.</p>`;
+                console.error("Error fetching leaderboard:", error);
+                loadingLeaderboard.textContent = "Error loading scores.";
             }
         }
+        
+        
+        // --- NEW AUTHENTICATION FUNCTIONS ---
+        
+        // Function to update UI based on user state
+        function updateUIForUser(user) {
+            if (user && !user.isAnonymous) {
+                // Logged In User
+                userId = user.uid;
+                // Prefer user's display name, but allow override by nameInput
+                userName = user.displayName || user.email.split('@')[0] || 'Authenticated User';
+                nameInput.value = userName;
+                
+                currentUserNameSpan.textContent = userName;
+                
+                authStatusText.textContent = `Logged in.`;
+                authInputs.classList.add('hidden');
+                loggedInUserDisplay.classList.remove('hidden');
 
-
-        // --- Core Game Functions ---
-
-        function calculateScore(wordLength, isBomb) {
-            let basePoints = isBomb ? 50 : 5; 
-            return basePoints + (wordLength * 3); 
-        }
-
-
-        /**
-         * Initializes or resets the game state.
-         * @param {string} mode - The mode to initialize with.
-         */
-        function initializeGame(mode = gameState.currentMode) {
-            gameState.score = 0;
-            gameState.lives = 3;
-            gameState.fruits = [];
-            gameState.nextFruitId = 0;
-            
-            // Set the new or current mode
-            gameState.currentMode = mode;
-
-            // Reset base difficulty settings
-            gameState.fallSpeed = 0.8;
-            gameState.spawnInterval = 2000;
-            gameState.lastSpawnTime = 0;
-            gameState.lastDifficultyIncreaseTime = 0; 
-            
-            gameState.isRunning = false;
-            gameState.usedWordsHistory = []; 
-
-            typingInput.value = '';
-            gameArea.innerHTML = '';
-            gameOverModal.classList.add('hidden');
-            typingInput.setAttribute('disabled', 'true');
-
-            // Set initial dimensions and display
-            updateDimensions();
-            updateDisplay();
-        }
-
-        /**
-         * Updates the score and lives display.
-         */
-        function updateDisplay() {
-            scoreDisplay.textContent = `Score: ${gameState.score}`;
-            livesDisplay.textContent = gameState.lives;
-            if (gameState.lives <= 1) {
-                livesDisplay.classList.add('text-red-500');
             } else {
-                livesDisplay.classList.remove('text-red-500');
+                // Anonymous or Logged Out
+                userId = user ? user.uid : (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `anon-${Math.random().toString(36).substring(2, 9)}`);
+                userName = nameInput.value || 'Anonymous Player';
+
+                authStatusText.textContent = `Sign in or play anonymously!`;
+                authInputs.classList.remove('hidden');
+                loggedInUserDisplay.classList.add('hidden');
             }
+            // Ensure the input field reflects the current name for editing
+            nameInput.placeholder = userName; 
+            nameInput.disabled = false; // Allow editing display name
         }
 
-        /**
-         * Starts the game loop.
-         */
-        function startGame() {
-            if (gameState.isRunning) return;
-
-            // Show game elements and enable input
-            gameContainer.classList.remove('hidden');
-            gameHeader.classList.remove('hidden');
-            selectionScreen.classList.add('hidden');
-            
-            typingInput.removeAttribute('disabled');
-            typingInput.focus();
-
-            gameState.isRunning = true;
-            const now = performance.now();
-            gameState.lastSpawnTime = now;
-            gameState.lastDifficultyIncreaseTime = now;
-            gameLoop(now);
-        }
-
-        /**
-         * Main animation loop.
-         * @param {number} timestamp - The current time provided by requestAnimationFrame.
-         */
-        function gameLoop(timestamp) {
-            if (!gameState.isRunning) {
-                cancelAnimationFrame(gameState.animationFrameId);
+        // Email/Password Sign Up
+        async function signUpWithEmail() {
+            const email = emailInput.value;
+            const password = passwordInput.value;
+            if (!email || password.length < 6) {
+                showModal('Error', 'Please enter a valid email and a password of at least 6 characters.');
                 return;
             }
-
-            // 0. Difficulty Increase Check (Every 30 seconds)
-            if (timestamp - gameState.lastDifficultyIncreaseTime > gameState.DIFFICULTY_INTERVAL_MS) {
-                gameState.spawnInterval = Math.max(800, gameState.spawnInterval - gameState.SPAWN_DECREASE_PER_INTERVAL);
-                gameState.fallSpeed += gameState.FALL_SPEED_INCREASE_PER_INTERVAL; 
-                gameState.lastDifficultyIncreaseTime = timestamp;
-                
-                showMessage(`Difficulty Increased! Speed up!`, 'text-yellow-300');
+            try {
+                await firebase.createUserWithEmailAndPassword(auth, email, password);
+                // Auth state change listener handles UI update
+            } catch (error) {
+                showModal('Sign Up Error', error.message);
             }
-
-            // 1. Spawning Logic (This controls the space/delay between words appearing)
-            if (timestamp - gameState.lastSpawnTime > gameState.spawnInterval) {
-                spawnFruit();
-                gameState.lastSpawnTime = timestamp;
+        }
+        
+        // Email/Password Log In
+        async function loginWithEmail() {
+            const email = emailInput.value;
+            const password = passwordInput.value;
+            if (!email || !password) {
+                showModal('Error', 'Please enter both email and password.');
+                return;
             }
-
-            // 2. Update Positions and Check Bounds
-            gameState.fruits = gameState.fruits.filter(fruit => {
-                const scoreSpeedBonus = (gameState.score / 50) * 0.2;
-                const currentSpeed = gameState.fallSpeed + scoreSpeedBonus;
-                
-                fruit.y += currentSpeed;
-
-                const element = document.getElementById(`fruit-${fruit.id}`);
-                if (element) {
-                    element.style.transform = `translate(${fruit.x}px, ${fruit.y}px)`;
-                }
-
-                // Check if fruit has fallen past the bottom (Game Over for this word)
-                if (fruit.y > gameState.gameAreaHeight) {
-                    loseLife(fruit); 
-                    return false; 
-                }
-
-                return true;
-            });
-
-            // 3. Request next frame
-            gameState.animationFrameId = requestAnimationFrame(gameLoop);
+            try {
+                await firebase.signInWithEmailAndPassword(auth, email, password);
+                // Auth state change listener handles UI update
+            } catch (error) {
+                showModal('Login Error', error.message);
+            }
         }
 
-        /**
-         * Spawns a new word element based on the current game mode.
-         */
-        function spawnFruit() {
-            const allWords = WORD_CATEGORIES[gameState.currentMode];
-            if (!allWords || allWords.length === 0) return;
+        // Google Sign In
+        async function loginWithGoogle() {
+            try {
+                const provider = new firebase.GoogleAuthProvider();
+                await firebase.signInWithPopup(auth, provider);
+                // Auth state change listener handles UI update
+            } catch (error) {
+                showModal('Google Sign-In Error', error.message);
+            }
+        }
+        
+        // Log Out
+        async function userSignOut() {
+            try {
+                await firebase.signOut(auth);
+                // Optional: Sign in anonymously immediately after sign out for continuity
+                await firebase.signInAnonymously(auth); 
+                // Auth state change listener handles UI update
+            } catch (error) {
+                showModal('Logout Error', error.message);
+            }
+        }
 
-            let selectedWordData;
-            let word;
 
-            // 8% chance to spawn a BOMB
-            if (Math.random() < BOMB_CHANCE) {
-                selectedWordData = BOMB_WORD_CONFIG;
-                word = BOMB_WORD_CONFIG.word;
-            } else if (gameState.currentMode === 'RANDOM') {
-                const availableWords = allWords.filter(wd => !gameState.usedWordsHistory.includes(wd.word));
+        // --- Initialization and Setup ---
 
-                if (availableWords.length === 0) {
-                    gameState.usedWordsHistory = [];
-                    selectedWordData = allWords[Math.floor(Math.random() * allWords.length)];
+        async function setupFirebase() {
+            try {
+                const app = firebase.initializeApp(effectiveFirebaseConfig);
+                auth = firebase.getAuth(app);
+                db = firebase.getFirestore(app);
+                firebase.setLogLevel('Debug'); // Enable debug logging
+
+                // 1. Authenticate the user (using custom token if available, otherwise anonymously)
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await firebase.signInWithCustomToken(auth, __initial_auth_token);
+                    console.log("Signed in with custom token.");
                 } else {
-                    selectedWordData = availableWords[Math.floor(Math.random() * availableWords.length)];
+                    // Start with an anonymous user if no custom token exists
+                    await firebase.signInAnonymously(auth);
+                    console.log("Signed in anonymously.");
                 }
 
-                word = selectedWordData.word.toUpperCase();
+                // 2. Auth State Listener
+                // This listener runs every time the user signs in or out.
+                firebase.onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        updateUIForUser(user);
+                        fetchLeaderboard();
+                    } else {
+                        // This should ideally not happen if we always sign in anonymously
+                        updateUIForUser(null);
+                    }
+                });
+
+                // 3. Attach new Auth Event Listeners
+                loginEmailButton.addEventListener('click', loginWithEmail);
+                signupEmailButton.addEventListener('click', signUpWithEmail);
+                loginGoogleButton.addEventListener('click', loginWithGoogle);
+                logoutButton.addEventListener('click', userSignOut);
                 
-                gameState.usedWordsHistory.push(word);
-                if (gameState.usedWordsHistory.length > gameState.MAX_HISTORY_SIZE) {
-                    gameState.usedWordsHistory.shift(); 
-                }
-
-            } else {
-                selectedWordData = allWords[Math.floor(Math.random() * allWords.length)];
-                word = selectedWordData.word.toUpperCase();
-            }
-
-            
-            // Calculate width estimate for positioning (rough estimation)
-            const wordWidth = word.length * 24 + 60; 
-
-            const maxX = gameState.gameAreaWidth - wordWidth;
-            if (maxX <= 0) return; 
-            const x = Math.random() * maxX;
-
-            const newFruit = {
-                id: gameState.nextFruitId++,
-                word: word,
-                emoji: selectedWordData.emoji,
-                color: selectedWordData.color,
-                isBomb: selectedWordData.isBomb || false, 
-                y: -50, 
-                x: x,
-                typed: '',
-            };
-
-            gameState.fruits.push(newFruit);
-            renderFruit(newFruit);
-        }
-
-        /**
-         * Renders a word object into the DOM.
-         * @param {object} fruit - The word object to render.
-         */
-        function renderFruit(fruit) {
-            const fruitEl = document.createElement('div');
-            fruitEl.id = `fruit-${fruit.id}`;
-            const bombEffect = fruit.isBomb ? 'text-red-200 border-red-500 animate-pulse' : '';
-            fruitEl.className = `fruit-item ${fruit.color} ${bombEffect}`;
-            
-            fruitEl.innerHTML = `<span>${fruit.emoji} </span> <span id="word-${fruit.id}">${fruit.word}</span>`;
-            fruitEl.style.transform = `translate(${fruit.x}px, ${fruit.y}px)`;
-            gameArea.appendChild(fruitEl);
-        }
-
-        /**
-         * Updates the visual representation of a word based on typed input.
-         */
-        function updateFruitWordDisplay(fruit) {
-            const element = document.getElementById(`fruit-${fruit.id}`);
-            if (!element) return;
-
-            const typedLength = fruit.typed.length;
-            const fullWord = fruit.word;
-
-            const typedPart = fullWord.substring(0, typedLength);
-            const remainingPart = fullWord.substring(typedLength);
-
-            element.querySelector('span:last-child').innerHTML =
-                `<span class="typed-correct">${typedPart}</span>` +
-                `<span class="typed-remaining">${remainingPart}</span>`;
-        }
-
-        /**
-         * Removes the visual focus from all falling words.
-         */
-        function clearFruitFocus() {
-            gameState.fruits.forEach(f => {
-                const element = document.getElementById(`fruit-${f.id}`);
-                if (element) {
-                    element.classList.remove('fruit-focused');
-                }
-            });
-        }
-
-        /**
-         * Handles the player successfully cutting a word.
-         * @param {object} fruit - The word object that was cut.
-         */
-        function cutFruit(fruit) {
-            const points = calculateScore(fruit.word.length, fruit.isBomb);
-            gameState.score += points;
-            updateDisplay();
-
-            showMessage(`+${points} points! ${fruit.isBomb ? '(BOMB BONUS)' : ''}`, fruit.isBomb ? 'text-yellow-400' : 'text-emerald-400');
-
-            // Find and animate the element before removing
-            const element = document.getElementById(`fruit-${fruit.id}`);
-            if (element) {
-                element.style.opacity = '0';
-                element.style.transform += ' scale(1.5) rotate(45deg)';
-                setTimeout(() => element.remove(), 200);
-            }
-
-            // Remove from game state
-            gameState.fruits = gameState.fruits.filter(f => f.id !== fruit.id);
-            typingInput.value = ''; 
-            typingInput.classList.remove('border-yellow-500'); 
-            clearFruitFocus(); 
-        }
-
-        /**
-         * Handles a life being lost.
-         * @param {object} missedFruit - The word object that was missed.
-         */
-        function loseLife(missedFruit) {
-            if (!gameState.isRunning) return;
-
-            const livesLost = missedFruit.isBomb ? 2 : 1;
-            gameState.lives -= livesLost;
-            updateDisplay();
-
-            if (missedFruit.isBomb) {
-                showMessage('BOMB MISSED! DANGER: -2 Lives', 'text-red-700 font-extrabold');
-            } else {
-                showMessage('Item missed! -1 Life', 'text-red-500');
-            }
-
-            typingInput.value = '';
-            clearFruitFocus();
-
-            if (gameState.lives <= 0) {
-                endGame();
+                fetchLeaderboard(); // Initial leaderboard load
+                
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+                showModal('Setup Error', 'Could not connect to the database. Leaderboard and sign-in features may be unavailable.', true);
             }
         }
 
-        /**
-         * Ends the game, saves the score, and shows the final score.
-         */
-        function endGame() {
-            gameState.isRunning = false;
-            cancelAnimationFrame(gameState.animationFrameId);
-            typingInput.setAttribute('disabled', 'true');
-            typingInput.classList.remove('border-yellow-500'); 
-
-            finalScoreDisplay.textContent = gameState.score;
-            gameOverModal.classList.remove('hidden');
-
-            saveHighScore();
-            loadLeaderboard();
-        }
-
-        /**
-         * Shows a temporary message in the message box.
-         */
-        function showMessage(text, colorClass) {
-            messageBox.textContent = text;
-            messageBox.className = `text-center h-6 font-semibold ${colorClass}`;
-            setTimeout(() => {
-                messageBox.textContent = '';
-                messageBox.className = 'text-center h-6 text-red-400 font-semibold';
-            }, 1000);
-        }
-
-        /**
-         * Updates game area dimensions on resize.
-         */
-        function updateDimensions() {
-            gameState.gameAreaHeight = gameArea.clientHeight;
-            gameState.gameAreaWidth = gameArea.clientWidth;
-        }
 
         // --- Event Listeners ---
 
-        // 1. Initial Start Button
-        beginButton.addEventListener('click', () => {
-            const selectedMode = modeSelector.value;
-            initializeGame(selectedMode);
-            startGame(); // Automatically start the game loop after selection
-        });
-
-        // 2. Restart Game (Same Mode)
-        restartButton.addEventListener('click', () => {
-            initializeGame();
+        startGameButton.addEventListener('click', () => {
+            // Update the global userName before starting the game
+            userName = nameInput.value || 'Anonymous Player'; 
+            if (userName === 'Anonymous Player' && !auth.currentUser.isAnonymous) {
+                 // If a logged-in user clears the name, default to their auth name
+                 userName = auth.currentUser.displayName || auth.currentUser.email.split('@')[0];
+            }
             startGame();
         });
+        
+        pauseButton.addEventListener('click', togglePause);
 
-        // 3. Choose New Mode (Go back to selection screen)
-        chooseModeButton.addEventListener('click', () => {
-            gameOverModal.classList.add('hidden');
-            gameContainer.classList.add('hidden');
-            gameHeader.classList.add('hidden');
-            selectionScreen.classList.remove('flex'); // Switch back to flex layout
-            selectionScreen.classList.remove('hidden');
+        window.addEventListener('keydown', (e) => {
+            // Unpause on any keypress if paused
+            if (isPaused && gameState.isRunning) {
+                if (e.key === 'Escape') return; // Don't unpause on escape key
+                togglePause();
+            }
         });
 
-        // 4. Typing input listener
+        // Main typing input listener
         typingInput.addEventListener('input', (e) => {
-            if (!gameState.isRunning) {
+            if (!gameState.isRunning || isPaused) {
                 typingInput.value = '';
                 return;
             }
 
-            const input = e.target.value.toUpperCase();
+            const input = e.target.value.toLowerCase();
+            typingInput.classList.remove('border-red-500', 'border-yellow-500');
+
+            // Find the best fruit match (prefixed match, then partial match)
             let currentBestMatch = null;
+            let currentMatchLength = 0;
 
-            // Find the word that matches the current input
-            for (const fruit of gameState.fruits) {
-                if (fruit.word.startsWith(input)) {
-                    // Check if it's the full word match first (instant cut)
-                    if (fruit.word === input) {
-                        cutFruit(fruit);
-                        return; 
-                    }
-
-                    // Otherwise, find the *shortest* matching word to focus on
-                    if (!currentBestMatch || fruit.word.length < currentBestMatch.word.length) {
-                        currentBestMatch = fruit;
-                    }
-                }
-            }
-
-            // Apply focus logic and visual updates
-            typingInput.classList.remove('border-yellow-500', 'border-red-500'); 
-            clearFruitFocus(); 
+            // 1. Prioritize perfect prefix match
+            currentBestMatch = gameState.fruits.find(f => f.word.startsWith(input));
 
             if (currentBestMatch) {
-                // Focus on the best match
-                gameState.fruits.forEach(f => {
-                    f.typed = (f.id === currentBestMatch.id) ? input : '';
-                    updateFruitWordDisplay(f);
-                });
+                // Check if the word is fully typed
+                if (input === currentBestMatch.word) {
+                    // SUCCESS!
+                    
+                    // Update Score
+                    gameState.score += currentBestMatch.word.length * gameState.level;
+                    gameState.wordsTyped++;
 
-                const focusElement = document.getElementById(`fruit-${currentBestMatch.id}`);
-                if (focusElement) {
-                    focusElement.classList.add('fruit-focused');
+                    messageBox.textContent = `CUT: ${currentBestMatch.word.toUpperCase()}`;
+                    messageBox.classList.remove('text-gray-700', 'text-red-600');
+                    messageBox.classList.add('text-green-600');
+                    setTimeout(() => messageBox.textContent = '', 500);
+
+                    // Remove fruit element from DOM
+                    gameArea.removeChild(currentBestMatch.element);
+                    // Remove from game state
+                    gameState.fruits = gameState.fruits.filter(f => f.id !== currentBestMatch.id);
+
+                    // Clear input for next word
+                    typingInput.value = '';
+                    typingInput.classList.remove('border-yellow-500');
+                    
+                    // Remove the focused border immediately
+                    currentBestMatch.element.classList.remove('fruit-focused');
+                    
+                    // The fruit will be filtered out in the next gameLoop
+                } else {
+                     // Partial match, focus on it
+                    gameState.fruits.forEach(f => {
+                        f.typed = (f.id === currentBestMatch.id) ? input : '';
+                        updateFruitWordDisplay(f);
+                        f.element.classList.remove('fruit-focused');
+                    });
+                    currentBestMatch.element.classList.add('fruit-focused');
+
+                    typingInput.classList.add('border-yellow-500'); 
                 }
 
-                typingInput.classList.add('border-yellow-500'); 
             } else {
                 // No match, clear all highlights
                 gameState.fruits.forEach(f => {
                     f.typed = '';
                     updateFruitWordDisplay(f);
+                    f.element.classList.remove('fruit-focused');
                 });
                 if (input.length > 0) {
                     typingInput.classList.add('border-red-500'); 
@@ -826,7 +831,9 @@
             setupFirebase();
         } else {
             console.error("Firebase SDK not loaded.");
+            showModal('Fatal Error', 'Firebase SDK failed to load. The game cannot start.', true);
         }
+        
         // Initially hide the game screen and show the selection screen
         gameContainer.classList.add('hidden');
         gameHeader.classList.add('hidden');
